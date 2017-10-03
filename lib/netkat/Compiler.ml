@@ -965,6 +965,70 @@ end
 (* END: module Automaton *)
 
 
+(** switch-wise specialized automaton  *)
+module Sw_wise_auto = struct
+  type auto = (int, FDD.t * FDD.t) Hashtbl.t
+  type t = (int64, auto) Hashtbl.t
+
+  let switches_of_auto (auto : Automaton.t) : Int64.Set.t =
+    let of_fdd fdd =
+      FDD.fold fdd
+        ~g:(fun test acc1 acc2 ->
+              let acc = Set.union acc1 acc2 in
+              match test with
+              | Switch, Const sw -> Set.add acc sw
+              | _ -> acc
+            )
+        ~f:(fun action ->
+              Par.fold action ~init:Int64.Set.empty ~f:(fun acc seq ->
+                match Seq.find seq (Action.F Switch) with
+                | Some (Const sw) -> Set.add acc sw
+                | _ -> acc)
+            )
+    in
+    Automaton.fold_reachable auto ~init:Int64.Set.empty ~f:(fun acc _id (e,d) ->
+      Set.union (of_fdd e) (of_fdd d) |> Set.union acc)
+
+  let map_conts fdd ~(f: Value.t -> Value.t) =
+    FDD.map_r fdd ~f:(fun par -> Par.map par ~f:(fun seq -> Seq.change seq Action.K ~f:(function
+      | None -> None
+      | Some k -> Some (f k)
+    )))
+
+  let skip_topo_state (auto : Automaton.t) (d : FDD.t) : FDD.t =
+    map_conts d ~f:(fun k ->
+      let k: int = match k with
+        | Const k -> Int.of_int64_exn k
+        | _ -> failwith "continuation of unexpected type"
+      in
+      match Hashtbl.find_exn auto.states k |> snd |> FDD.unget with
+      | Leaf par ->
+        let seq = Par.find_exn par (fun _ -> true) in
+        begin match Seq.find seq (Action.F Switch), Seq.find seq Action.K with
+        | (Some (Const sw), Some (Const k)) -> Mask (sw, Int.of_int64_exn k)
+        | _ -> failwith "topology state of unexpected form"
+        end
+      | _ -> failwith "topology state of unexpected form")
+
+  let of_auto (auto : Automaton.t) : t =
+    let switches = switches_of_auto auto in
+    let specialize sw fdd = FDD.restrict [(Switch, Const sw)] fdd in
+    let t = Int64.Table.create () in
+    Set.iter switches ~f:(fun sw ->
+      let specialized_auto = Int.Table.create () in
+      Int64.Table.add_exn t ~key:sw ~data:specialized_auto;
+      Automaton.iter_reachable auto ~f:(fun id (e,d) ->
+        let e = specialize sw e in
+        let d = specialize sw d |> skip_topo_state auto in
+        Int.Table.add_exn specialized_auto ~key:id ~data:(e,d)
+      )
+    );
+    t
+
+end
+
+
+
 let compile_global ?(options=default_compiler_options) ?(pc=Field.Vlan) pol : FDD.t =
   prepare_compilation ~options pol;
   Automaton.of_policy pol
