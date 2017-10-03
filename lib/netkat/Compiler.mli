@@ -24,18 +24,18 @@ val to_dot : t -> string
 
 (** Intermediate representation of global compiler: NetKAT Automata *)
 module Automaton : sig
-  type t
+  type 'state t
 
   val fold_reachable: ?order:[< `Post | `Pre > `Pre ]
-    -> t
+    -> int t
     -> init:'a
     -> f:('a -> int -> (FDD.t * FDD.t) -> 'a)
     -> 'a
 
-  val of_policy: ?dedup:bool -> ?ing:pred -> ?cheap_minimize:bool -> policy -> t
-  val to_local: pc:Field.t -> t -> FDD.t
+  val of_policy: ?dedup:bool -> ?ing:pred -> ?cheap_minimize:bool -> policy -> int t
+  val to_local: pc:Field.t -> int t -> FDD.t
 
-  val to_dot: t -> string
+  val to_dot: int t -> string
 end
 
 type cache
