@@ -1070,9 +1070,9 @@ module Sw_wise_auto = struct
       let _ = assert Automaton.(pc_unused pc e && pc_unused pc d) in
       let d = FDD.map_r d ~f:(Par.map ~f:(fun seq -> match Seq.find seq K with
         | None -> failwith "malformed transition function!"
-        | Some (Mask (_,k)) ->
+        | Some (Value.Mask (_,k)) ->
           Seq.remove seq K
-          |> Seq.add ~key:(F pc) ~data:(Const k)
+          |> Seq.add ~key:(F pc) ~data:(Const (Int64.of_int k))
       ))
       in
       let guard =
