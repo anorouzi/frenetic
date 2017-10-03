@@ -591,13 +591,13 @@ module Pol = struct
   let filter_loc sw pt = match_loc sw pt |> mk_filter
   let filter_vloc sw pt = match_vloc sw pt |> mk_filter
 
-  let rec of_pol (ing : Syntax.pred option) (pol : Syntax.policy) : t =
+  let rec of_pol ?(ing : Syntax.pred option) (pol : Syntax.policy) : t =
     match pol with
     | Filter a -> Filter a
     | Mod hv -> Mod hv
-    | Union (p,q) -> Union (of_pol ing p, of_pol ing q)
-    | Seq (p,q) -> Seq (of_pol ing p, of_pol ing q)
-    | Star p -> Star (of_pol ing p)
+    | Union (p,q) -> Union (of_pol ?ing p, of_pol ?ing q)
+    | Seq (p,q) -> Seq (of_pol ?ing p, of_pol ?ing q)
+    | Star p -> Star (of_pol ?ing p)
     | Link (s1,p1,s2,p2) ->
       let link = mk_seq (mk_mod (Switch s2)) (mk_mod (Location (Physical p2))) in
       let post_link = match ing with
@@ -608,11 +608,7 @@ module Pol = struct
       mk_big_seq [filter_loc s1 p1; Dup; link; Dup; post_link]
     | VLink (s1,p1,s2,p2) ->
       let link = mk_seq (mk_mod (VSwitch s2)) (mk_mod (VPort p2)) in
-      let post_link = match ing with
-        | None -> filter_vloc s2 p2
-        | Some ing ->
-          Optimize.(mk_and (Test (VSwitch s2)) (mk_not ing))
-          |> mk_filter in
+      let post_link = filter_vloc s2 p2 in
       mk_big_seq [filter_vloc s1 p1; Dup; link; Dup; post_link]
     | Let _ -> failwith "meta fields not supported by global compiler yet"
     | Dup -> Dup
@@ -853,7 +849,7 @@ module Automaton = struct
 
   let of_policy ?(dedup=true) ?ing ?(cheap_minimize=true) (pol : Syntax.policy) : t =
     let automaton = create_t0 () in
-    let pol = Pol.of_pol ing pol in
+    let pol = Pol.of_pol ?ing pol in
     let () = add_policy automaton (automaton.source, pol) in
     let automaton = t_of_t0 ~cheap_minimize automaton in
     let () = if dedup then determinize automaton in
