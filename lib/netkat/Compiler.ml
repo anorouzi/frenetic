@@ -1025,6 +1025,62 @@ module Sw_wise_auto = struct
     );
     t
 
+  let iter_reachable (t: t) (start: int) ~(f: int64 -> int -> (FDD.t * FDD.t) -> unit) =
+    let rec do_sw sw id =
+      let (e,d) as fdds = Int.Table.find_exn (Int64.Table.find_exn t sw) id in
+      f sw id fdds;
+      do_d d
+    and do_d d =
+      FDD.fold d
+        ~g:(fun _ _ _ -> ())
+        ~f:(Par.iter ~f:(fun seq -> match Seq.find seq Action.K with
+            | Some (Mask(sw,id)) -> do_sw sw id
+            | _ -> failwith "malformed fdd"
+           ))
+    in
+    List.iter (Int64.Table.keys t) ~f:(fun sw -> do_sw sw start)
+
+  (** removes unreachables states and renames reachable state so they're using
+      increasing state ids *)
+  let normalize_state_ids (t : t) (start: int) : t =
+    let new_id_map: ((int64 * int), int) Hashtbl.t = Hashtbl.Poly.create () in
+    let next_id: (int64, int) Hashtbl.t = Int64.Table.create () in
+    let new_id sw id =
+      Hashtbl.find_or_add new_id_map (sw, id) ~default:(fun () ->
+        let new_id = Hashtbl.find_or_add next_id sw ~default:(fun () -> 0) in
+        Hashtbl.change next_id sw (Option.map ~f:((+) 1));
+        new_id)
+    in
+    let new_t: t = Hashtbl.Poly.create () in
+    iter_reachable t start ~f:(fun sw id (e,d) ->
+      let id = new_id sw id in
+      let d = map_conts d ~f:(function
+        | Mask (sw, id) -> Mask (sw, new_id sw id)
+        | _ -> failwith "unexpected continuation")
+      in
+      let sw_tbl =
+        Hashtbl.find_or_add new_t sw ~default:(fun () -> Int.Table.create ()) in
+      Hashtbl.add_exn sw_tbl ~key:id ~data:(e,d)
+    );
+    new_t
+
+  let to_local ~(pc : Field.t) (automaton : t) (start: int) : FDD.t =
+    Int64.Table.fold automaton ~init:FDD.drop ~f:(fun ~key:sw ~data:tbl init ->
+    Int.Table.fold tbl ~init ~f:(fun ~key:id ~data:(e,d) ->
+      let _ = assert Automaton.(pc_unused pc e && pc_unused pc d) in
+      let d = FDD.map_r d ~f:(Par.map ~f:(fun seq -> match Seq.find seq K with
+        | None -> failwith "malformed transition function!"
+        | Some (Mask (_,k)) ->
+          Seq.remove seq K
+          |> Seq.add ~key:(F pc) ~data:(Const k)
+      ))
+      in
+      let guard =
+        if id = start then FDD.id
+        else FDD.atom (pc, Value.of_int id) Action.one Action.zero in
+      let fdd = FDD.seq guard (FDD.union e d) in
+      FDD.union acc fdd
+    ))
 end
 
 
